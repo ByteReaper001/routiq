@@ -80,6 +80,77 @@ function Simulator({ compact = false }) {
     {!compact && <div className="analytics-grid"><div className="card chart-card"><div className="card-kicker"><Gauge /> TRAFFIC OVER TIME</div><div className="chart-legend"><span className="line-green" /> Transmitted <span className="line-amber" /> Generated <span className="line-red" /> Dropped</div><div className="bars">{chart.map((v, i) => <div className="bar-group" key={i}><i style={{ height: `${v.n}%` }} /><i style={{ height: `${v.h}%` }} /><i style={{ height: `${Math.max(8, v.h - 20)}%` }} /></div>)}</div><div className="axis"><span>01</span><span>05</span><span>09</span><span>13</span><span>{tick}</span></div></div><div className="card comparison"><div className="card-kicker"><Timer /> QUEUE COMPARISON</div><h3>Same traffic. Different behavior.</h3><p>Run both policies against an equivalent workload and compare what the data reveals.</p><div className="compare-row"><span>FIFO</span><b>2.8 ticks</b><em>avg wait</em></div><div className="compare-row"><span>PRIORITY</span><b>2.1 ticks</b><em>avg wait</em></div><Button variant="outline" onClick={() => runTick(20)}>Run comparison <ArrowRight data-icon="inline-end" /></Button></div></div>}
   </section>
 }
+const implementationSnippets = {
+  'circular_queue.c': `#include "routiq.h"
+
+void initCircularQueue(CircularQueue *q) {
+  q->front = 0;
+  q->rear = 0;
+  q->size = 0;
+}
+
+int enqueueCircular(CircularQueue *q, Packet packet) {
+  if (isCircularFull(q)) return 0;
+  q->items[q->rear] = packet;
+  q->rear = (q->rear + 1) % MAX_BUFFER;
+  q->size++;
+  return 1;
+}
+
+int dequeueCircular(CircularQueue *q, Packet *packet) {
+  if (isCircularEmpty(q)) return 0;
+  *packet = q->items[q->front];
+  q->front = (q->front + 1) % MAX_BUFFER;
+  q->size--;
+  return 1;
+}`,
+  'priority_queue.c': `#include "routiq.h"
+
+void initPriorityQueue(PriorityQueue *q) {
+  q->size = 0;
+}
+
+int enqueuePriority(PriorityQueue *q, Packet packet) {
+  if (q->size == MAX_BUFFER) return 0;
+  int i = q->size++;
+  while (i > 0 && q->items[i - 1].priority < packet.priority) {
+    q->items[i] = q->items[i - 1];
+    i--;
+  }
+  q->items[i] = packet;
+  return 1;
+}
+
+int dequeuePriority(PriorityQueue *q, Packet *packet) {
+  if (q->size == 0) return 0;
+  *packet = q->items[0];
+  for (int i = 1; i < q->size; i++)
+    q->items[i - 1] = q->items[i];
+  q->size--;
+  return 1;
+}`,
+  'simulation.c': `#include "routiq.h"
+
+int simulation_step(Simulation *sim) {
+  Packet packet;
+  sim->tick++;
+
+  if (sim->policy == PRIORITY_POLICY)
+    dequeuePriority(&sim->priority, &packet);
+  else
+    dequeueCircular(&sim->circular, &packet);
+
+  sim->transmitted++;
+  sim->waiting_ticks += sim->tick - packet.queue_tick;
+  return 1;
+}`,
+}
+
+function ImplementationCode() {
+  const [file, setFile] = useState('circular_queue.c')
+  return <div className="code-card card"><div className="code-tabs">{Object.keys(implementationSnippets).map((name) => <button key={name} className={file === name ? 'active' : ''} onClick={() => setFile(name)}>{name}</button>)}</div><pre><code>{implementationSnippets[file]}</code></pre><div className="code-foot"><span>✓ compiled with emcc</span><span>{file === 'priority_queue.c' ? 'O(n) ordered insert' : file === 'simulation.c' ? 'one tick / step' : 'O(1) enqueue / dequeue'}</span></div></div>
+}
+
 function SlidersIcon() { return <Gauge /> }
 
 export default function Page() {
@@ -88,20 +159,7 @@ export default function Page() {
     <section className="overview section" id="architecture"><SectionLabel>01 / SYSTEM OVERVIEW</SectionLabel><div className="section-intro"><h2>A router is only as<br /> efficient as its queue.</h2><p>Traffic is unpredictable. Buffer space is not. ROUTIQ makes the hidden trade-offs of packet scheduling visible.</p></div><div className="feature-grid">{[[Server,'Packet Ingress','Packets arrive with source, destination, size, arrival time, and priority.','packet_t → router'],[Layers3,'Finite-Capacity Buffer','Limited storage means bursts can create congestion and packet drops.','capacity = 16'],[Network,'Queue Scheduling','Compare FIFO order with priority-based scheduling under the same workload.','O(1) vs O(log n)'],[Gauge,'Traffic Analytics','Measure throughput, waiting time, utilization, congestion, and loss.','metrics(t) → live']].map(([Icon,title,desc,detail]) => <article className="feature-card" key={title}><Icon /><h3>{title}</h3><p>{desc}</p><code>{detail}</code></article>)}</div></section>
     <section className="lifecycle section"><SectionLabel>02 / PACKET LIFECYCLE</SectionLabel><div className="section-intro"><h2>From ingress to egress.</h2><p>Every tick is a small experiment in queue behavior.</p></div><div className="stages">{stages.map(([n,t,d], i) => <div className="stage" key={n}><span>{n}</span><div><b>{t}</b><p>{d}</p></div>{i < 5 && <ChevronRight />}</div>)}</div></section>
     <Simulator />
-    <section className="under-hood section" id="implementation"><SectionLabel>03 / UNDER THE HOOD</SectionLabel><div className="section-intro"><h2>The data structures<br /> are the engine.</h2><p>The interface stays out of the way. Packets, queues, scheduling, and metrics are owned by the simulation layer.</p></div><div className="code-layout"><div className="code-card card"><div className="code-tabs"><span className="active">circular_queue.c</span><span>priority_queue.c</span><span>simulation.h</span></div><pre><code>{`typedef struct {
-  Packet items[MAX_BUFFER];
-  int front;
-  int rear;
-  int size;
-} CircularQueue;
-
-void enqueueCircular(CircularQueue *q,
-                     Packet packet) {
-  if (isCircularFull(q)) return;
-  q->items[q->rear] = packet;
-  q->rear = (q->rear + 1) % MAX_BUFFER;
-  q->size++;
-}`}</code></pre><div className="code-foot"><span>✓ compiled with emcc</span><span>O(1) enqueue / dequeue</span></div></div><div className="responsibility card"><div className="card-kicker"><Cpu /> SYSTEM BOUNDARY</div><div className="boundary-row"><span className="react-box">REACT UI</span><ArrowRight /><span className="wasm-box">WASM</span><ArrowRight /><span className="c-box">C ENGINE</span></div><p>React owns presentation, controls, and charts. The C engine owns packet state, capacity checks, scheduling, transmission, and statistics.</p><div className="trace"><span>LAST OPERATION</span><b>DEQUEUE → P0041</b><small>priority queue · tick 014</small></div></div></div></section>
+    <section className="under-hood section" id="implementation"><SectionLabel>03 / UNDER THE HOOD</SectionLabel><div className="section-intro"><h2>The data structures<br /> are the engine.</h2><p>The interface stays out of the way. Packets, queues, scheduling, and metrics are owned by the simulation layer.</p></div><div className="code-layout"><ImplementationCode /><div className="responsibility card"><div className="card-kicker"><Cpu /> SYSTEM BOUNDARY</div><div className="boundary-row"><span className="react-box">REACT UI</span><ArrowRight /><span className="wasm-box">WASM</span><ArrowRight /><span className="c-box">C ENGINE</span></div><p>React owns presentation, controls, and charts. The C engine owns packet state, capacity checks, scheduling, transmission, and statistics.</p><div className="trace"><span>LAST OPERATION</span><b>DEQUEUE → P0041</b><small>priority queue · tick 014</small></div></div></div></section>
     <footer><Logo /><span>Every packet has a path. Every queue has a cost.</span><span>DATA STRUCTURES PROJECT / 2026</span></footer>
   </main>
 }
