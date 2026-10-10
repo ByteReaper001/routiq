@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
 import { ArrowRight, Check, ChevronRight, CircleDot, Cpu, Download, Gauge, Layers3, Menu, Network, Pause, Play, RotateCcw, Send, Server, Terminal, Timer, X, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -51,8 +52,25 @@ function Simulator({ compact = false }) {
   const [dropped, setDropped] = useState(2)
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState(null)
-  const runTick = (amount = 1) => { setTick(t => t + amount); setGenerated(g => g + intensity * amount); setTransmitted(t => t + rate * amount); setDropped(d => d + (profile === 'Heavy' ? amount : 0)); setPackets(p => [...p.slice(rate), ...Array.from({ length: Math.min(intensity, capacity - p.length + rate) }, (_, i) => ({ ...initialPackets[(tick + i) % initialPackets.length], id: `P${String(generated + i + 1).padStart(4, '0')}`, tick: tick + amount }))]) }
-  const reset = () => { setPackets(initialPackets); setTick(14); setGenerated(46); setTransmitted(31); setDropped(2); setRunning(false) }
+  const runTick = useCallback((amount = 1) => {
+    setTick(currentTick => {
+      setGenerated(currentGenerated => currentGenerated + intensity * amount)
+      setTransmitted(currentTransmitted => currentTransmitted + rate * amount)
+      setDropped(currentDropped => currentDropped + (profile === 'Heavy' ? amount : 0))
+      setPackets(currentPackets => {
+        const availableSlots = Math.max(0, capacity - Math.max(0, currentPackets.length - rate * amount))
+        const arrivals = Math.min(intensity * amount, availableSlots)
+        return [...currentPackets.slice(rate * amount), ...Array.from({ length: arrivals }, (_, i) => ({ ...initialPackets[(currentTick + i) % initialPackets.length], id: `P${String(currentGenerated + i + 1).padStart(4, '0')}`, tick: currentTick + amount }))]
+      })
+      return currentTick + amount
+    })
+  }, [capacity, intensity, profile, rate])
+  useEffect(() => {
+    if (!running) return
+    const timer = window.setInterval(() => runTick(), 900)
+    return () => window.clearInterval(timer)
+  }, [running, runTick])
+  const reset = () => { setPackets(initialPackets); setTick(14); setGenerated(46); setTransmitted(31); setDropped(2); setSelected(null); setRunning(false) }
   const utilization = Math.round((packets.length / capacity) * 100)
   const chart = useMemo(() => Array.from({ length: 18 }, (_, i) => ({ h: 22 + ((i * 13 + tick) % 52), n: 18 + ((i * 7 + generated) % 38) })), [tick, generated])
   return <section id="simulator" className={`simulator-section ${compact ? 'compact' : ''}`}>
@@ -64,13 +82,14 @@ function Simulator({ compact = false }) {
         <label>Traffic intensity <b>{intensity} / interval</b></label><input type="range" min="1" max="20" value={intensity} onChange={e => setIntensity(+e.target.value)} />
         <label>Processing rate <b>{rate} / tick</b></label><input type="range" min="1" max="8" value={rate} onChange={e => setRate(+e.target.value)} />
         <label>Traffic profile</label><select value={profile} onChange={e => setProfile(e.target.value)}>{profiles.map(p => <option key={p}>{p}</option>)}</select>
-        <div className="control-row"><Button onClick={() => { setRunning(!running); if (!running) runTick() }}><Play data-icon="inline-start" /> {running ? 'Pause' : 'Start'}</Button><Button variant="outline" onClick={() => runTick()}><ChevronRight data-icon="inline-start" /> Step</Button></div>
-        <div className="control-row"><Button variant="secondary" onClick={() => runTick(100)}><Zap data-icon="inline-start" /> Run 100 ticks</Button><Button variant="ghost" onClick={reset}><RotateCcw data-icon="inline-start" /></Button></div>
+        <div className="control-row"><Button aria-pressed={running} onClick={() => setRunning(current => !current)}><AnimatePresence mode="wait" initial={false}><motion.span key={running ? 'pause' : 'play'} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.15 }} className="inline-flex"><Play data-icon="inline-start" /></motion.span></AnimatePresence> {running ? 'Pause automation' : 'Start automation'}</Button><Button variant="outline" onClick={() => runTick()}><ChevronRight data-icon="inline-start" /> Step once</Button></div>
+        <div className="control-row"><Button variant="secondary" onClick={() => runTick(100)}><Zap data-icon="inline-start" /> Run 100 ticks</Button><Button variant="ghost" aria-label="Reset simulation" onClick={reset}><RotateCcw data-icon="inline-start" /></Button></div>
+        <div className="sim-help"><b>How to read this</b><p>Each tick removes packets at the processing rate, then adds new arrivals. Circular FIFO serves the oldest packet first; Priority serves the most important packet first.</p></div>
       </aside>
       <div className="workspace-main">
         <div className="card buffer-card"><div className="panel-head"><div><div className="card-kicker"><Layers3 /> PACKET BUFFER</div><h3>{policy === 'circular' ? 'Circular queue' : 'Priority queue'} <span>· tick {String(tick).padStart(3, '0')}</span></h3></div><div className="pointer-stats"><b>{packets.length}</b> / {capacity} occupied <span className="util">{utilization}%</span></div></div>
           <div className="queue-meta"><span><i className="legend front" /> FRONT <b>00</b></span><span><i className="legend rear" /> REAR <b>{String(Math.max(0, packets.length - 1)).padStart(2, '0')}</b></span><span>AVAILABLE <b>{Math.max(0, capacity - packets.length)}</b></span></div>
-          <div className={`queue ${policy}`} style={{ '--cols': Math.min(capacity, 16) }}>{Array.from({ length: Math.min(capacity, 16) }, (_, i) => { const packet = packets[i]; return <button key={i} onClick={() => setSelected(packet)} className={`slot ${packet ? 'occupied' : ''} ${packet?.priority.toLowerCase() || ''} ${i === 0 ? 'front-slot' : ''}`}><span className="slot-index">{String(i).padStart(2, '0')}</span>{packet ? <><b>{packet.id}</b><small>{packet.priority}</small></> : <span className="empty-dash">—</span>}</button> })}</div>
+          <div className={`queue ${policy}`} style={{ '--cols': Math.min(capacity, 16) }}>{Array.from({ length: Math.min(capacity, 16) }, (_, i) => { const packet = packets[i]; return <motion.button layout key={i} onClick={() => setSelected(packet)} className={`slot ${packet ? 'occupied' : ''} ${packet?.priority.toLowerCase() || ''} ${i === 0 ? 'front-slot' : ''}`} initial={{ opacity: 0, scale: 0.92 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.2, delay: i * 0.015 }}><span className="slot-index">{String(i).padStart(2, '0')}</span>{packet ? <><b>{packet.id}</b><small>{packet.priority}</small></> : <span className="empty-dash">—</span>}</motion.button> })}</div>
           <div className="legend-row"><span><i className="legend empty" /> Empty</span><span><i className="legend occupied-dot" /> Occupied</span><span><i className="legend high" /> Priority</span><span><i className="legend transmitted" /> Transmitting</span></div>
         </div>
         <div className="lower-grid"><div className="card inspector"><div className="card-kicker"><CircleDot /> PACKET INSPECTOR</div>{selected ? <><div className="packet-title"><b>{selected.id}</b><span className={`priority ${selected.priority.toLowerCase()}`}>{selected.priority}</span></div><div className="detail-grid"><span>SOURCE <b>{selected.src}</b></span><span>DESTINATION <b>{selected.dest}</b></span><span>SIZE <b>{selected.size} B</b></span><span>ARRIVAL TICK <b>{selected.tick}</b></span><span>QUEUE ENTRY <b>{selected.tick}</b></span><span>WAITING <b>{tick - selected.tick} ticks</b></span></div></> : <div className="empty-inspector"><Terminal />Select a packet slot to inspect its state.</div>}</div><div className="card event-log"><div className="panel-head"><div className="card-kicker"><Terminal /> EVENT LOG</div><span className="live-label"><span className="status-dot" /> LIVE</span></div><div className="events"><p><span>[TICK {String(tick).padStart(3, '0')}]</span> <b>PACKET {packets[0]?.id || 'P0000'} ENQUEUED</b></p><p><span>[TICK {String(tick - 1).padStart(3, '0')}]</span> <b className="green">P0041 TRANSMITTED</b></p><p><span>[TICK {String(tick - 2).padStart(3, '0')}]</span> <b className="amber">P0040 SCHEDULED</b></p><p><span>[TICK {String(tick - 3).padStart(3, '0')}]</span> <b className="red">BUFFER FULL — P0038 DROPPED</b></p></div></div></div>
