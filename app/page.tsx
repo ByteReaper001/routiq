@@ -60,7 +60,7 @@ function Simulator({ compact = false }) {
       setPackets(currentPackets => {
         const availableSlots = Math.max(0, capacity - Math.max(0, currentPackets.length - rate * amount))
         const arrivals = Math.min(intensity * amount, availableSlots)
-        return [...currentPackets.slice(rate * amount), ...Array.from({ length: arrivals }, (_, i) => ({ ...initialPackets[(currentTick + i) % initialPackets.length], id: `P${String(currentGenerated + i + 1).padStart(4, '0')}`, tick: currentTick + amount }))]
+        return [...currentPackets.slice(rate * amount), ...Array.from({ length: arrivals }, (_, i) => ({ ...initialPackets[(currentTick + i) % initialPackets.length], id: `P${String(generated + i + 1).padStart(4, '0')}`, tick: currentTick + amount }))]
       })
       return currentTick + amount
     })
