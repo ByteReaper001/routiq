@@ -55,16 +55,26 @@ function Simulator({ compact = false }) {
   const runTick = useCallback((amount = 1) => {
     setTick(currentTick => {
       setGenerated(currentGenerated => currentGenerated + intensity * amount)
-      setTransmitted(currentTransmitted => currentTransmitted + rate * amount)
-      setDropped(currentDropped => currentDropped + (profile === 'Heavy' ? amount : 0))
+      setTransmitted(currentTransmitted => currentTransmitted + Math.min(rate * amount, packets.length))
       setPackets(currentPackets => {
-        const availableSlots = Math.max(0, capacity - Math.max(0, currentPackets.length - rate * amount))
-        const arrivals = Math.min(intensity * amount, availableSlots)
-        return [...currentPackets.slice(rate * amount), ...Array.from({ length: arrivals }, (_, i) => ({ ...initialPackets[(currentTick + i) % initialPackets.length], id: `P${String(generated + i + 1).padStart(4, '0')}`, tick: currentTick + amount }))]
+        const transmittedNow = Math.min(rate * amount, currentPackets.length)
+        const remainingPackets = currentPackets.slice(transmittedNow)
+        const incomingCount = intensity * amount
+        const availableSlots = Math.max(0, capacity - remainingPackets.length)
+        const acceptedCount = Math.min(incomingCount, availableSlots)
+        const droppedNow = incomingCount - acceptedCount
+
+        setDropped(currentDropped => currentDropped + droppedNow)
+
+        return [...remainingPackets, ...Array.from({ length: acceptedCount }, (_, i) => ({
+          ...initialPackets[(currentTick + i) % initialPackets.length],
+          id: `P${String(generated + i + 1).padStart(4, '0')}`,
+          tick: currentTick + amount,
+        }))]
       })
       return currentTick + amount
     })
-  }, [capacity, intensity, profile, rate])
+  }, [capacity, generated, intensity, packets.length, rate])
   useEffect(() => {
     if (!running) return
     const timer = window.setInterval(() => runTick(), 900)
