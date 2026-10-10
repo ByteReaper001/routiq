@@ -15,13 +15,7 @@ const stages = [
   ['05', 'TRANSMIT', 'Remove and process the selected packet.'],
   ['06', 'MEASURE', 'Update traffic and performance statistics.'],
 ]
-const initialPackets = [
-  { id: 'P0042', priority: 'High', src: '10.0.0.8', dest: '172.16.2.4', size: 1240, tick: 12 },
-  { id: 'P0043', priority: 'Normal', src: '10.0.0.12', dest: '172.16.2.9', size: 860, tick: 12 },
-  { id: 'P0044', priority: 'Critical', src: '10.0.0.3', dest: '172.16.2.1', size: 1480, tick: 13 },
-  { id: 'P0045', priority: 'Low', src: '10.0.0.18', dest: '172.16.2.7', size: 512, tick: 13 },
-  { id: 'P0046', priority: 'High', src: '10.0.0.21', dest: '172.16.2.8', size: 960, tick: 14 },
-]
+const initialPackets = []
 
 function Logo() { return <a href="#overview" className="logo"><span className="logo-mark"><span /><span /><span /></span><span>ROUTIQ</span></a> }
 function SectionLabel({ children }) { return <div className="section-label"><span>{children}</span></div> }
@@ -42,17 +36,17 @@ function RouterDiagram() {
 function Simulator({ compact = false }) {
   const [policy, setPolicy] = useState('circular')
   const [capacity, setCapacity] = useState(16)
-  const [intensity, setIntensity] = useState(4)
-  const [rate, setRate] = useState(2)
-  const [profile, setProfile] = useState('Moderate')
+  const [intensity, setIntensity] = useState(0)
+  const [rate, setRate] = useState(0)
+  const [profile, setProfile] = useState('Light')
   const [packets, setPackets] = useState(initialPackets)
-  const [tick, setTick] = useState(14)
-  const [generated, setGenerated] = useState(38)
-  const [transmitted, setTransmitted] = useState(31)
-  const [dropped, setDropped] = useState(2)
+  const [tick, setTick] = useState(0)
+  const [generated, setGenerated] = useState(0)
+  const [transmitted, setTransmitted] = useState(0)
+  const [dropped, setDropped] = useState(0)
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState(null)
-  const simulationRef = useRef({ packets: initialPackets, tick: 14, generated: 38, transmitted: 31, dropped: 2 })
+  const simulationRef = useRef({ packets: initialPackets, tick: 0, generated: 0, transmitted: 0, dropped: 0 })
   const runTick = useCallback((amount = 1) => {
     const state = simulationRef.current
     const transmittedNow = Math.min(rate * amount, state.packets.length)
@@ -85,8 +79,8 @@ function Simulator({ compact = false }) {
     return () => window.clearInterval(timer)
   }, [running, runTick])
   const reset = () => {
-    simulationRef.current = { packets: initialPackets, tick: 14, generated: 38, transmitted: 31, dropped: 2 }
-    setPackets(initialPackets); setTick(14); setGenerated(38); setTransmitted(31); setDropped(2); setSelected(null); setRunning(false)
+    simulationRef.current = { packets: initialPackets, tick: 0, generated: 0, transmitted: 0, dropped: 0 }
+    setPackets(initialPackets); setTick(0); setGenerated(0); setTransmitted(0); setDropped(0); setSelected(null); setRunning(false)
   }
   const utilization = Math.round((packets.length / capacity) * 100)
   const chart = useMemo(() => Array.from({ length: 18 }, (_, i) => ({ h: 22 + ((i * 13 + tick) % 52), n: 18 + ((i * 7 + generated) % 38) })), [tick, generated])
@@ -96,8 +90,8 @@ function Simulator({ compact = false }) {
       <aside className="config card"><div className="card-kicker"><SlidersIcon /> SIMULATION CONFIGURATION</div>
         <label>Queue policy</label><div className="segmented"><button className={policy === 'circular' ? 'active' : ''} onClick={() => setPolicy('circular')}>Circular FIFO</button><button className={policy === 'priority' ? 'active' : ''} onClick={() => setPolicy('priority')}>Priority</button></div>
         <label>Buffer capacity <b>{capacity} slots</b></label><input type="range" min="4" max="64" value={capacity} onChange={e => setCapacity(+e.target.value)} />
-        <label>Traffic intensity <b>{intensity} / interval</b></label><input type="range" min="1" max="20" value={intensity} onChange={e => setIntensity(+e.target.value)} />
-        <label>Processing rate <b>{rate} / tick</b></label><input type="range" min="1" max="8" value={rate} onChange={e => setRate(+e.target.value)} />
+        <label>Traffic intensity <b>{intensity} / interval</b></label><input type="range" min="0" max="20" value={intensity} onChange={e => setIntensity(+e.target.value)} />
+        <label>Processing rate <b>{rate} / tick</b></label><input type="range" min="0" max="8" value={rate} onChange={e => setRate(+e.target.value)} />
         <label>Traffic profile</label><select value={profile} onChange={e => setProfile(e.target.value)}>{profiles.map(p => <option key={p}>{p}</option>)}</select>
         <div className="control-row"><Button aria-pressed={running} onClick={() => setRunning(current => !current)}><AnimatePresence mode="wait" initial={false}><motion.span key={running ? 'pause' : 'play'} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.15 }} className="inline-flex"><Play data-icon="inline-start" /></motion.span></AnimatePresence> {running ? 'Pause automation' : 'Start automation'}</Button><Button variant="outline" onClick={() => runTick()}><ChevronRight data-icon="inline-start" /> Step once</Button></div>
         <div className="control-row"><Button variant="secondary" onClick={() => runTick(100)}><Zap data-icon="inline-start" /> Run 100 ticks</Button><Button variant="ghost" aria-label="Reset simulation" onClick={reset}><RotateCcw data-icon="inline-start" /></Button></div>
