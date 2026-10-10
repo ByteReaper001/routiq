@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { ArrowRight, Check, ChevronRight, CircleDot, Cpu, Download, Gauge, Layers3, Menu, Network, Pause, Play, RotateCcw, Send, Server, Terminal, Timer, X, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -47,40 +47,47 @@ function Simulator({ compact = false }) {
   const [profile, setProfile] = useState('Moderate')
   const [packets, setPackets] = useState(initialPackets)
   const [tick, setTick] = useState(14)
-  const [generated, setGenerated] = useState(46)
+  const [generated, setGenerated] = useState(38)
   const [transmitted, setTransmitted] = useState(31)
   const [dropped, setDropped] = useState(2)
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState(null)
+  const simulationRef = useRef({ packets: initialPackets, tick: 14, generated: 38, transmitted: 31, dropped: 2 })
   const runTick = useCallback((amount = 1) => {
-    setTick(currentTick => {
-      setGenerated(currentGenerated => currentGenerated + intensity * amount)
-      setTransmitted(currentTransmitted => currentTransmitted + Math.min(rate * amount, packets.length))
-      setPackets(currentPackets => {
-        const transmittedNow = Math.min(rate * amount, currentPackets.length)
-        const remainingPackets = currentPackets.slice(transmittedNow)
-        const incomingCount = intensity * amount
-        const availableSlots = Math.max(0, capacity - remainingPackets.length)
-        const acceptedCount = Math.min(incomingCount, availableSlots)
-        const droppedNow = incomingCount - acceptedCount
-
-        setDropped(currentDropped => currentDropped + droppedNow)
-
-        return [...remainingPackets, ...Array.from({ length: acceptedCount }, (_, i) => ({
-          ...initialPackets[(currentTick + i) % initialPackets.length],
-          id: `P${String(generated + i + 1).padStart(4, '0')}`,
-          tick: currentTick + amount,
-        }))]
-      })
-      return currentTick + amount
-    })
-  }, [capacity, generated, intensity, packets.length, rate])
+    const state = simulationRef.current
+    const transmittedNow = Math.min(rate * amount, state.packets.length)
+    const remainingPackets = state.packets.slice(transmittedNow)
+    const incomingCount = intensity * amount
+    const acceptedCount = Math.min(incomingCount, Math.max(0, capacity - remainingPackets.length))
+    const droppedNow = incomingCount - acceptedCount
+    const nextTick = state.tick + amount
+    const nextPackets = [...remainingPackets, ...Array.from({ length: acceptedCount }, (_, i) => ({
+      ...initialPackets[(nextTick + i) % initialPackets.length],
+      id: `P${String(state.generated + i + 1).padStart(4, '0')}`,
+      tick: nextTick,
+    }))]
+    simulationRef.current = {
+      packets: nextPackets,
+      tick: nextTick,
+      generated: state.generated + incomingCount,
+      transmitted: state.transmitted + transmittedNow,
+      dropped: state.dropped + droppedNow,
+    }
+    setPackets(nextPackets)
+    setTick(nextTick)
+    setGenerated(simulationRef.current.generated)
+    setTransmitted(simulationRef.current.transmitted)
+    setDropped(simulationRef.current.dropped)
+  }, [capacity, intensity, rate])
   useEffect(() => {
     if (!running) return
     const timer = window.setInterval(() => runTick(), 900)
     return () => window.clearInterval(timer)
   }, [running, runTick])
-  const reset = () => { setPackets(initialPackets); setTick(14); setGenerated(46); setTransmitted(31); setDropped(2); setSelected(null); setRunning(false) }
+  const reset = () => {
+    simulationRef.current = { packets: initialPackets, tick: 14, generated: 38, transmitted: 31, dropped: 2 }
+    setPackets(initialPackets); setTick(14); setGenerated(38); setTransmitted(31); setDropped(2); setSelected(null); setRunning(false)
+  }
   const utilization = Math.round((packets.length / capacity) * 100)
   const chart = useMemo(() => Array.from({ length: 18 }, (_, i) => ({ h: 22 + ((i * 13 + tick) % 52), n: 18 + ((i * 7 + generated) % 38) })), [tick, generated])
   return <section id="simulator" className={`simulator-section ${compact ? 'compact' : ''}`}>
